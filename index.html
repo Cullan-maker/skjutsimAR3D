@@ -3,28 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, orientation=landscape">
-    <title>AR Precision Simulator</title>
+    <title>AR Precision - Felsäker Behörighet</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
         
-        /* Absolut transparent grund för att kameran ska synas */
         html, body { margin: 0; padding: 0; background: transparent !important; color: #fff; overflow: hidden; width: 100vw; height: 100vh; font-family: 'Roboto', sans-serif; }
-        
         #three-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
 
         /* Startskärmen */
         #start-screen { position: absolute; top:0; left:0; width:100%; height:100%; background:#111; z-index: 100; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align: center; padding: 20px;}
         #start-screen h1 { color: #00ffff; margin-bottom: 10px; font-size: 36px; text-transform: uppercase; letter-spacing: 2px;}
-        #start-screen p { color: #aaa; margin-bottom: 30px; font-size: 16px;}
+        #start-screen p { color: #aaa; margin-bottom: 20px; font-size: 16px;}
         
-        /* Starta AR Knapp */
         #btn-start { background: #007bff; color: #fff; border: 2px solid #0056b3; padding: 20px 40px; font-size: 20px; font-weight: bold; border-radius: 8px; cursor: pointer; text-transform: uppercase; box-shadow: 0 4px 0 #0056b3; }
         #btn-start:active { transform: translateY(4px); box-shadow: 0 0 0 #0056b3; }
-
-        /* AR UI (DOM Overlay) */
-        #ar-ui { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; flex-direction: column; pointer-events: none; z-index: 10; }
         
-        /* Top Header med stats och knappar */
+        #error-msg { color: #ff1744; font-weight: bold; margin-top: 20px; font-size: 14px; max-width: 80%; background: rgba(255,0,0,0.1); padding: 10px; border-radius: 5px; display: none; border: 1px solid #ff1744;}
+
+        /* AR UI */
+        #ar-ui { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; flex-direction: column; pointer-events: none; z-index: 10; }
         #ar-header { padding: 15px; background: linear-gradient(rgba(0,0,0,0.9), rgba(0,0,0,0)); display: flex; justify-content: space-between; align-items: flex-start; pointer-events: auto; }
         
         .stat-panel { display: flex; flex-direction: column; gap: 5px; }
@@ -42,7 +39,6 @@
         #air-spawn-btn { background: #9c27b0; border: 1px solid #7b1fa2; box-shadow: 0 3px 0 #7b1fa2; }
         #air-spawn-btn:active { transform: translateY(3px); box-shadow: 0 0 0 #7b1fa2; }
 
-        /* Fäst på vägg-knapp (Stor och centrerad i botten) */
         #place-btn { position: absolute; bottom: 30%; left: 50%; transform: translateX(-50%); background: #ff9800; border: 2px solid #e65100; font-size: 18px; padding: 15px 30px; border-radius: 8px; display: none; box-shadow: 0 5px 0 #e65100; pointer-events: auto; color: white; font-weight: bold;}
         #place-btn:active { transform: translate(-50%, 5px); box-shadow: 0 0 0 #e65100; }
 
@@ -60,12 +56,12 @@
 
     <div id="start-screen">
         <h1>AR Precision</h1>
-        <p>1. Snurra telefonen till liggande läge.<br>2. Montera på vapnet.<br>3. Starta systemet.</p>
+        <p>Håll enheten i liggande läge.<br>Sidan måste köras över HTTPS.</p>
         <button id="btn-start">Starta AR-Kamera</button>
+        <div id="error-msg"></div>
     </div>
 
     <div id="discreet-feedback">TRÄFF</div>
-
     <div id="three-canvas"></div>
 
     <div id="ar-ui">
@@ -74,19 +70,16 @@
                 <div class="stat-box">Träffar: <span id="ar-hit-count">0</span></div>
                 <div class="stat-box" style="border-left-color: #e91e63;">Avstånd: <span id="ar-distance" style="color:#ff4081;">--</span> <small style="color:#888;">m</small></div>
             </div>
-            
-            <div id="statusBoard">SKANNA RUMMET</div>
-            
+            <div id="statusBoard">STARTAR...</div>
             <div class="controls">
                 <div style="display: flex; gap: 5px;">
-                    <button id="ar-clear-btn" class="action-btn" style="background: #d32f2f; border-color: #b71c1c;">Rensa Tavla</button>
+                    <button id="ar-clear-btn" class="action-btn" style="background: #d32f2f; border-color: #b71c1c;">Rensa</button>
                     <button id="ar-move-btn" class="action-btn" style="background: #007bff; border-color: #0056b3;">Ny Tavla</button>
                 </div>
-                
                 <div class="air-spawn-box">
                     <span style="font-size: 12px; color: #aaa; text-transform: uppercase;">Avstånd:</span>
                     <input type="number" id="air-dist-input" value="10" min="1" max="50">
-                    <button id="air-spawn-btn" class="action-btn">Skapa I luften</button>
+                    <button id="air-spawn-btn" class="action-btn">Skapa i luften</button>
                 </div>
             </div>
         </div>
@@ -97,7 +90,6 @@
             <div class="rear-sight"></div>
             <div class="front-sight" id="front-sight"><div class="white-dot"></div></div>
         </div>
-        
         <div id="audio-status">Mic: VÄNTAR...</div>
     </div>
 
@@ -108,32 +100,80 @@
         let xrSession = null;
         let placingMode = true, hits = 0;
         
-        // Ljud och Gyro
         let audioContext, analyser, dataArray, lastShotTime = 0;
         let sightOffsetX = 0, sightOffsetY = 0, sightVelX = 0, sightVelY = 0;
         let prevAlpha = null, prevGamma = null;
-        
         const raycaster = new THREE.Raycaster();
 
-        // --- 1. UPPSTART ---
+        // --- 1. BEHÖRIGHET OCH START ---
         document.getElementById('btn-start').addEventListener('click', async () => {
+            const errBox = document.getElementById('error-msg');
+            errBox.style.display = 'none';
+
+            // Kontrollera HTTPS
+            if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+                errBox.innerText = "FEL: WebXR kräver en säker HTTPS-anslutning.";
+                errBox.style.display = 'block';
+                return;
+            }
+
+            // Tvinga fram kamera-behörighetsfrågan innan WebXR startar!
+            try {
+                const tempStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                tempStream.getTracks().forEach(track => track.stop()); // Stäng direkt, vi ville bara ha behörigheten
+            } catch (err) {
+                errBox.innerText = "BEHÖRIGHET NEKAD: Klicka på hänglåset i adressfältet, välj Behörigheter/Sidinställningar och ställ in Kamera och Mikrofon på 'Tillåt'. Ladda sedan om sidan.";
+                errBox.style.display = 'block';
+                return;
+            }
+
+            // Helskärm
             try {
                 if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
                 if (screen.orientation && screen.orientation.lock) await screen.orientation.lock("landscape");
             } catch(e) {}
             
-            document.getElementById('start-screen').style.display = 'none';
-            document.getElementById('ar-ui').style.display = 'flex';
-            
+            // Starta Three.js
             initThreeJS();
-            startMic();
-            startWebXR();
+
+            // Starta AR
+            if (navigator.xr) {
+                navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+                    if (supported) {
+                        navigator.xr.requestSession('immersive-ar', { 
+                            requiredFeatures: ['hit-test'], 
+                            optionalFeatures: ['dom-overlay'], 
+                            domOverlay: { root: document.getElementById('ar-ui') } 
+                        }).then((session) => {
+                            // SUCCÉ!
+                            document.getElementById('start-screen').style.display = 'none';
+                            document.getElementById('ar-ui').style.display = 'flex';
+                            
+                            xrSession = session;
+                            renderer.xr.setReferenceSpaceType('local');
+                            renderer.xr.setSession(session);
+                            document.getElementById('statusBoard').innerText = "SKANNA VÄGGEN ELLER SKAPA I LUFTEN";
+                            
+                            startMic();
+                        }).catch(err => {
+                            errBox.innerText = "WebXR Session nekades av webbläsaren. Orsak: " + err.message;
+                            errBox.style.display = 'block';
+                        });
+                    } else {
+                        errBox.innerText = "Den här telefonen/webbläsaren saknar stöd för ARCore.";
+                        errBox.style.display = 'block';
+                    }
+                });
+            } else {
+                errBox.innerText = "WebXR API saknas i denna webbläsare.";
+                errBox.style.display = 'block';
+            }
         });
 
-        // --- 2. THREE.JS SCEN & MÅLTAVLA ---
+        // --- 2. THREE.JS ---
         function initThreeJS() {
             scene = new THREE.Scene();
-            scene.background = null; 
+            scene.background = null; // Avgörande för genomskinlig kamera
             
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
             scene.add(new THREE.AmbientLight(0xffffff, 0.9));
@@ -145,61 +185,35 @@
             renderer.xr.enabled = true;
             document.getElementById('three-canvas').appendChild(renderer.domElement);
 
-            // SKAPA EN MÖRK, RUND MÅLTAVLA
+            // Rund Måltavla
             const canvas = document.createElement('canvas'); 
             canvas.width = 512; canvas.height = 512;
             const ctx = canvas.getContext('2d');
-            
             const cx = 256, cy = 256, maxR = 250;
             
-            // Mörk bas (svart tavla)
-            ctx.fillStyle = '#181818'; 
-            ctx.beginPath(); ctx.arc(cx, cy, maxR, 0, Math.PI * 2); ctx.fill();
-            
-            // Tavelringar
-            ctx.strokeStyle = '#444'; 
-            ctx.lineWidth = 4;
-            const step = maxR / 10;
-            for(let i=1; i<=10; i++) {
-                ctx.beginPath(); ctx.arc(cx, cy, maxR - (i-1)*step, 0, Math.PI * 2); ctx.stroke();
-            }
-            // Bullseye
+            ctx.fillStyle = '#181818'; ctx.beginPath(); ctx.arc(cx, cy, maxR, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#444'; ctx.lineWidth = 4; const step = maxR / 10;
+            for(let i=1; i<=10; i++) { ctx.beginPath(); ctx.arc(cx, cy, maxR - (i-1)*step, 0, Math.PI * 2); ctx.stroke(); }
             ctx.fillStyle = '#0a0a0a'; ctx.beginPath(); ctx.arc(cx, cy, step*2, 0, Math.PI * 2); ctx.fill();
-            // Liten vit riktpunkt i mitten
             ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.fill();
             
-            // Cirkulär geometri istället för fyrkantig
-            const targetGeo = new THREE.CircleGeometry(0.2, 64); // 40 cm diameter i verkligheten
-            const targetMat = new THREE.MeshBasicMaterial({ 
-                map: new THREE.CanvasTexture(canvas), 
-                side: THREE.DoubleSide,
-                transparent: true
-            });
-            
+            const targetGeo = new THREE.CircleGeometry(0.2, 64); 
+            const targetMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), side: THREE.DoubleSide, transparent: true });
             target = new THREE.Mesh(targetGeo, targetMat);
-            target.visible = false; 
-            scene.add(target);
+            target.visible = false; scene.add(target);
             
-            targetDecals = new THREE.Group(); 
-            target.add(targetDecals);
+            targetDecals = new THREE.Group(); target.add(targetDecals);
 
-            // Reticle (Väggsikte)
-            reticle = new THREE.Mesh(
-                new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2), 
-                new THREE.MeshBasicMaterial({ color: 0x00ff00 })
-            );
-            reticle.matrixAutoUpdate = false; 
-            reticle.visible = false; 
-            scene.add(reticle);
+            // Sikte (Vägg)
+            reticle = new THREE.Mesh(new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
+            reticle.matrixAutoUpdate = false; reticle.visible = false; scene.add(reticle);
 
-            // Gyro (Kamera-spårning av siktet)
+            // Gyro (Kamera-spårning)
             window.addEventListener('deviceorientation', (e) => {
                 if(!e.alpha) return;
                 if(prevAlpha === null) { prevAlpha = e.alpha; prevGamma = e.gamma; return; }
                 
-                let dAlpha = e.alpha - prevAlpha; 
-                let dGamma = e.gamma - prevGamma;
-                
+                let dAlpha = e.alpha - prevAlpha; let dGamma = e.gamma - prevGamma;
                 if (dAlpha > 180) dAlpha -= 360; else if (dAlpha < -180) dAlpha += 360;
                 if (dGamma > 90) dGamma -= 180; else if (dGamma < -90) dGamma += 180;
                 
@@ -207,9 +221,7 @@
                     prevAlpha = e.alpha; prevGamma = e.gamma; return;
                 }
 
-                sightVelX -= dAlpha * 2.5; 
-                sightVelY -= dGamma * 2.5;
-                
+                sightVelX -= dAlpha * 2.5; sightVelY -= dGamma * 2.5;
                 prevAlpha = e.alpha; prevGamma = e.gamma;
             });
 
@@ -217,27 +229,7 @@
             renderer.setAnimationLoop(render);
         }
 
-        // --- 3. WEBXR START ---
-        function startWebXR() {
-            if (navigator.xr) {
-                navigator.xr.requestSession('immersive-ar', { 
-                    requiredFeatures: ['hit-test'], 
-                    optionalFeatures: ['dom-overlay'], 
-                    domOverlay: { root: document.getElementById('ar-ui') } 
-                }).then((session) => {
-                    xrSession = session;
-                    renderer.xr.setReferenceSpaceType('local');
-                    renderer.xr.setSession(session);
-                    document.getElementById('statusBoard').innerText = "SKANNA VÄGGEN";
-                }).catch(err => {
-                    alert("WebXR kunde inte starta. Se till att Chrome har kamerabehörighet.");
-                });
-            } else {
-                alert("Din webbläsare stöder inte WebXR.");
-            }
-        }
-
-        // --- 4. MIKROFON & SKJUT ---
+        // --- 3. MIKROFON & SKJUT ---
         function startMic() {
             navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -250,7 +242,6 @@
                 
                 function loopMic() {
                     analyser.getByteFrequencyData(dataArray);
-                    // 1.5s cooldown
                     if (Math.max(...dataArray) > 170 && (Date.now() - lastShotTime) > 1500) {
                         lastShotTime = Date.now(); fireShot();
                     }
@@ -278,19 +269,13 @@
             const intersects = raycaster.intersectObject(target);
             if (intersects.length > 0) {
                 const hit = target.worldToLocal(intersects[0].point.clone());
-                
-                // SKOTTHÅL (Ljus pappersfärg på svart bakgrund)
                 const holeMat = new THREE.MeshBasicMaterial({ color: 0xddccbb, depthTest: false });
                 const hole = new THREE.Mesh(new THREE.CircleGeometry(0.005, 16), holeMat);
-                
-                hole.position.set(hit.x, hit.y, 0.001); 
-                targetDecals.add(hole);
+                hole.position.set(hit.x, hit.y, 0.001); targetDecals.add(hole);
                 
                 hits++; document.getElementById('ar-hit-count').innerText = hits;
                 showFeedback("TRÄFF!", true);
-            } else {
-                showFeedback("BOM!", false);
-            }
+            } else { showFeedback("BOM!", false); }
         }
 
         function showFeedback(text, isHit) {
@@ -299,20 +284,16 @@
             setTimeout(() => { el.style.opacity = 0; }, 800);
         }
 
-        // --- 5. UI LOGIK ---
+        // --- 4. UI ---
         function setupUI() {
             const statusBoard = document.getElementById('statusBoard');
             const placeBtn = document.getElementById('place-btn');
 
             placeBtn.addEventListener('click', () => {
                 if (reticle.visible) {
-                    target.position.setFromMatrixPosition(reticle.matrix); 
-                    target.quaternion.setFromRotationMatrix(reticle.matrix);
-                    target.rotateX(-Math.PI / 2); // Res upp tavlan mot väggen
-                    
-                    target.visible = true; placingMode = false;
-                    placeBtn.style.display = 'none'; 
-                    statusBoard.innerText = "HÅLL STRUKET KORN";
+                    target.position.setFromMatrixPosition(reticle.matrix); target.quaternion.setFromRotationMatrix(reticle.matrix);
+                    target.rotateX(-Math.PI / 2); target.visible = true; placingMode = false;
+                    placeBtn.style.display = 'none'; statusBoard.innerText = "HÅLL STRUKET KORN";
                 }
             });
             
@@ -322,72 +303,46 @@
             });
             
             document.getElementById('ar-move-btn').addEventListener('click', () => { 
-                target.visible = false; placingMode = true; 
-                statusBoard.innerText = "SKANNA VÄGGEN ELLER SKAPA I LUFTEN"; 
+                target.visible = false; placingMode = true; statusBoard.innerText = "SKANNA VÄGGEN ELLER SKAPA I LUFTEN"; 
             });
             
             document.getElementById('air-spawn-btn').addEventListener('click', () => {
                 const dist = parseFloat(document.getElementById('air-dist-input').value);
                 if (isNaN(dist) || dist <= 0) return;
-                
                 const direction = new THREE.Vector3(0, 0, -1);
-                direction.applyQuaternion(camera.quaternion); 
-                direction.multiplyScalar(dist);
-                
-                target.position.copy(camera.position).add(direction); 
-                target.lookAt(camera.position);
-                
-                target.visible = true; placingMode = false; 
-                placeBtn.style.display = 'none';
+                direction.applyQuaternion(camera.quaternion); direction.multiplyScalar(dist);
+                target.position.copy(camera.position).add(direction); target.lookAt(camera.position);
+                target.visible = true; placingMode = false; placeBtn.style.display = 'none';
                 statusBoard.innerText = "HÅLL STRUKET KORN";
             });
 
-            window.addEventListener('resize', () => { 
-                camera.aspect = window.innerWidth / window.innerHeight; 
-                camera.updateProjectionMatrix(); 
-                renderer.setSize(window.innerWidth, window.innerHeight); 
-            });
+            window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
         }
 
-        // --- 6. RENDER LOOP ---
+        // --- 5. RENDER LOOP ---
         let hitTestSourceRequested = false; let hitTestSource = null;
         
         function render(timestamp, frame) {
-            // Siktets Fysik
-            sightVelX *= 0.8; sightVelY *= 0.8; 
-            sightOffsetX += sightVelX; sightOffsetY += sightVelY;
+            sightVelX *= 0.8; sightVelY *= 0.8; sightOffsetX += sightVelX; sightOffsetY += sightVelY;
             sightOffsetX += (0 - sightOffsetX) * 0.15; sightOffsetY += (0 - sightOffsetY) * 0.15;
-            
-            sightOffsetX = Math.max(-100, Math.min(100, sightOffsetX)); 
-            sightOffsetY = Math.max(-80, Math.min(80, sightOffsetY));
+            sightOffsetX = Math.max(-100, Math.min(100, sightOffsetX)); sightOffsetY = Math.max(-80, Math.min(80, sightOffsetY));
             document.getElementById('front-sight').style.transform = `translate(${sightOffsetX}px, ${sightOffsetY}px)`;
 
-            // Uppdatera avstånd
-            if (target.visible) {
-                document.getElementById('ar-distance').innerText = camera.position.distanceTo(target.position).toFixed(1);
-            } else {
-                document.getElementById('ar-distance').innerText = "--";
-            }
+            if (target.visible) document.getElementById('ar-distance').innerText = camera.position.distanceTo(target.position).toFixed(1);
+            else document.getElementById('ar-distance').innerText = "--";
 
-            // Hit-testing för väggar
             if (frame && xrSession && placingMode) {
                 const refSpace = renderer.xr.getReferenceSpace();
                 if (!hitTestSourceRequested) {
-                    xrSession.requestReferenceSpace('viewer').then(rs => {
-                        xrSession.requestHitTestSource({ space: rs }).then(s => hitTestSource = s);
-                    });
+                    xrSession.requestReferenceSpace('viewer').then(rs => { xrSession.requestHitTestSource({ space: rs }).then(s => hitTestSource = s); });
                     hitTestSourceRequested = true;
                 }
                 if (hitTestSource) {
                     const hits = frame.getHitTestResults(hitTestSource);
                     if (hits.length > 0) {
-                        reticle.visible = true; 
-                        reticle.matrix.fromArray(hits[0].getPose(refSpace).transform.matrix);
+                        reticle.visible = true; reticle.matrix.fromArray(hits[0].getPose(refSpace).transform.matrix);
                         document.getElementById('place-btn').style.display = 'block';
-                    } else { 
-                        reticle.visible = false; 
-                        document.getElementById('place-btn').style.display = 'none'; 
-                    }
+                    } else { reticle.visible = false; document.getElementById('place-btn').style.display = 'none'; }
                 }
             }
 
