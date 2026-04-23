@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, orientation=landscape">
-    <title>AR Precision - Felsäker Behörighet</title>
+    <title>AR Precision - User Activation Fix</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
         
@@ -70,7 +70,7 @@
                 <div class="stat-box">Träffar: <span id="ar-hit-count">0</span></div>
                 <div class="stat-box" style="border-left-color: #e91e63;">Avstånd: <span id="ar-distance" style="color:#ff4081;">--</span> <small style="color:#888;">m</small></div>
             </div>
-            <div id="statusBoard">STARTAR...</div>
+            <div id="statusBoard">SKANNA RUMMET</div>
             <div class="controls">
                 <div style="display: flex; gap: 5px;">
                     <button id="ar-clear-btn" class="action-btn" style="background: #d32f2f; border-color: #b71c1c;">Rensa</button>
@@ -99,14 +99,15 @@
         let camera, scene, renderer, target, targetDecals, reticle;
         let xrSession = null;
         let placingMode = true, hits = 0;
+        let threeInitialized = false;
         
         let audioContext, analyser, dataArray, lastShotTime = 0;
         let sightOffsetX = 0, sightOffsetY = 0, sightVelX = 0, sightVelY = 0;
         let prevAlpha = null, prevGamma = null;
         const raycaster = new THREE.Raycaster();
 
-        // --- 1. BEHÖRIGHET OCH START ---
-        document.getElementById('btn-start').addEventListener('click', async () => {
+        // --- 1. BEHÖRIGHET OCH START (DIREKT KLICK-HANTERING) ---
+        document.getElementById('btn-start').addEventListener('click', () => {
             const errBox = document.getElementById('error-msg');
             errBox.style.display = 'none';
 
@@ -117,63 +118,45 @@
                 return;
             }
 
-            // Tvinga fram kamera-behörighetsfrågan innan WebXR startar!
-            try {
-                const tempStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                tempStream.getTracks().forEach(track => track.stop()); // Stäng direkt, vi ville bara ha behörigheten
-            } catch (err) {
-                errBox.innerText = "BEHÖRIGHET NEKAD: Klicka på hänglåset i adressfältet, välj Behörigheter/Sidinställningar och ställ in Kamera och Mikrofon på 'Tillåt'. Ladda sedan om sidan.";
+            if (!navigator.xr) {
+                errBox.innerText = "WebXR API saknas i denna webbläsare.";
                 errBox.style.display = 'block';
                 return;
             }
 
-            // Helskärm
-            try {
-                if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
-                if (screen.orientation && screen.orientation.lock) await screen.orientation.lock("landscape");
-            } catch(e) {}
-            
-            // Starta Three.js
-            initThreeJS();
-
-            // Starta AR
-            if (navigator.xr) {
-                navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
-                    if (supported) {
-                        navigator.xr.requestSession('immersive-ar', { 
-                            requiredFeatures: ['hit-test'], 
-                            optionalFeatures: ['dom-overlay'], 
-                            domOverlay: { root: document.getElementById('ar-ui') } 
-                        }).then((session) => {
-                            // SUCCÉ!
-                            document.getElementById('start-screen').style.display = 'none';
-                            document.getElementById('ar-ui').style.display = 'flex';
-                            
-                            xrSession = session;
-                            renderer.xr.setReferenceSpaceType('local');
-                            renderer.xr.setSession(session);
-                            document.getElementById('statusBoard').innerText = "SKANNA VÄGGEN ELLER SKAPA I LUFTEN";
-                            
-                            startMic();
-                        }).catch(err => {
-                            errBox.innerText = "WebXR Session nekades av webbläsaren. Orsak: " + err.message;
-                            errBox.style.display = 'block';
-                        });
-                    } else {
-                        errBox.innerText = "Den här telefonen/webbläsaren saknar stöd för ARCore.";
-                        errBox.style.display = 'block';
-                    }
-                });
-            } else {
-                errBox.innerText = "WebXR API saknas i denna webbläsare.";
+            // LÖSNINGEN: Begär WebXR omedelbart på klicket för att behålla "User Activation"
+            navigator.xr.requestSession('immersive-ar', { 
+                requiredFeatures: ['hit-test'], 
+                optionalFeatures: ['dom-overlay'], 
+                domOverlay: { root: document.getElementById('ar-ui') } 
+            }).then((session) => {
+                // SUCCÉ! Sessionen godkändes.
+                document.getElementById('start-screen').style.display = 'none';
+                document.getElementById('ar-ui').style.display = 'flex';
+                
+                if (!threeInitialized) {
+                    initThreeJS();
+                    threeInitialized = true;
+                }
+                
+                xrSession = session;
+                renderer.xr.setReferenceSpaceType('local');
+                renderer.xr.setSession(session);
+                
+                // NU när vi säkert är inne i AR kan vi fråga om mikrofonen
+                startMic();
+                
+            }).catch(err => {
+                // Fångar upp om kameran är blockerad i Chrome
+                errBox.innerText = "AR kunde inte starta. Se till att du tillåtit kamera i webbläsaren. Felkod: " + err.message;
                 errBox.style.display = 'block';
-            }
+            });
         });
 
         // --- 2. THREE.JS ---
         function initThreeJS() {
             scene = new THREE.Scene();
-            scene.background = null; // Avgörande för genomskinlig kamera
+            scene.background = null; 
             
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
             scene.add(new THREE.AmbientLight(0xffffff, 0.9));
