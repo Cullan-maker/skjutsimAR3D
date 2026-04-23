@@ -2,23 +2,21 @@
 <html lang="sv">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AR Precision Simulator</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, orientation=landscape">
+    <title>AR Precision - Robust Edition</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
         
-        /* Absolut transparent grund */
-        html, body { margin: 0; padding: 0; background: transparent !important; color: #fff; overflow: hidden; width: 100vw; height: 100vh; font-family: 'Roboto', sans-serif; }
+        /* Trick 1: Grunden för kameran */
+        html, body { margin: 0; padding: 0; background: #000; color: #fff; overflow: hidden; width: 100vw; height: 100vh; font-family: 'Roboto', sans-serif; }
         
-        /* 3D Canvasen måste ligga i bakgrunden */
-        canvas { position: absolute; top: 0; left: 0; z-index: -1; outline: none; }
-
+        #three-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+        
         /* Startskärmen */
         #start-screen { position: absolute; top:0; left:0; width:100%; height:100%; background:#111; z-index: 100; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align: center; padding: 20px;}
         #start-screen h1 { color: #00ffff; margin-bottom: 10px; font-size: 32px;}
-        #start-screen p { color: #aaa; margin-bottom: 30px; font-size: 14px;}
-
-        /* AR UI (DOM Overlay) */
+        
+        /* AR UI */
         #ar-ui { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; flex-direction: column; pointer-events: none; z-index: 10; }
         #ar-header { padding: 10px 20px; background: linear-gradient(rgba(0,0,0,0.9), transparent); display: flex; justify-content: space-between; align-items: flex-start; pointer-events: auto; }
         
@@ -27,8 +25,8 @@
         #statusBoard { font-size: 18px; font-weight: 900; color: #ffeb3b; text-shadow: 2px 2px 4px #000; text-align: center; flex-grow: 1; margin-top: 5px;}
         
         .controls { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
-        button.action-btn { background: #2e7d32; color: #fff; border: 2px solid #1b5e20; padding: 8px 12px; font-size: 12px; font-weight: bold; border-radius: 5px; cursor: pointer; text-transform: uppercase; pointer-events: auto; }
-        #place-btn { background: #ff9800; border-color: #e65100; font-size: 16px; padding: 15px 25px; display: none; margin: auto; box-shadow: 0 4px 0 #e65100; pointer-events: auto;}
+        button.action-btn { background: #2e7d32; color: #fff; border: 2px solid #1b5e20; padding: 15px 25px; font-size: 16px; font-weight: bold; border-radius: 5px; cursor: pointer; text-transform: uppercase; pointer-events: auto; }
+        #place-btn { background: #ff9800; border-color: #e65100; display: none; margin: auto; box-shadow: 0 4px 0 #e65100;}
         
         /* Siktet */
         #glock-sight { position: absolute; bottom: 5%; left: 50%; transform: translateX(-50%); width: 300px; height: 150px; pointer-events: none; display: flex; justify-content: center; align-items: flex-end; }
@@ -38,17 +36,18 @@
         
         #audio-status { position: absolute; bottom: 10px; left: 10px; font-size: 10px; color: #ffeb3b; background: rgba(0,0,0,0.5); padding: 5px; border-radius: 5px;}
         #discreet-feedback { position: absolute; top: 35%; left: 50%; transform: translate(-50%, -50%); font-size: 32px; font-weight: 900; opacity: 0; transition: opacity 0.2s ease-out; pointer-events: none; z-index: 1000; text-shadow: 0 2px 5px rgba(0,0,0,0.8); letter-spacing: 2px;}
-
-        /* Officiell ARButton override */
-        #ARButton { padding: 15px 30px !important; font-size: 18px !important; font-weight: bold; background: #007bff !important; border-radius: 8px !important; position: static !important; display: inline-block !important; margin-top: 20px;}
     </style>
 </head>
 <body>
 
+    <video id="camera-feed" style="position: absolute; width: 100%; height: 100%; object-fit: cover; display: none; z-index: 0;" autoplay playsinline muted></video>
+    
+    <div id="three-canvas"></div>
+
     <div id="start-screen">
         <h1>AR Precision</h1>
-        <p>Vänta på att knappen aktiveras.<br>Kräver Google Play-tjänster för AR.</p>
-        <div id="ar-btn-container"></div>
+        <p>Snurra telefonen till liggande läge.</p>
+        <button id="btn-start" class="action-btn">STARTA SYSTEMET</button>
     </div>
 
     <div id="discreet-feedback">TRÄFF</div>
@@ -59,13 +58,12 @@
                 <div class="stat-box">Träffar: <span id="ar-hit-count">0</span></div>
                 <div class="stat-box" style="border-left-color: #e91e63;">Avstånd: <span id="ar-distance">--</span> m</div>
             </div>
-            <div id="statusBoard">SKANNA RUMMET</div>
+            <div id="statusBoard">SKANNA ELLER SKAPA</div>
             <div class="controls">
-                <button id="ar-clear-btn" class="action-btn" style="background: #d32f2f; border-color: #b71c1c;">Rensa Tavla</button>
-                <button id="ar-move-btn" class="action-btn">Ny Skanning</button>
-                <div style="background: rgba(0,0,0,0.7); padding: 5px; border-radius: 5px; display: flex; gap: 5px; pointer-events: auto;">
+                <button id="ar-clear-btn" class="action-btn" style="background: #d32f2f; border-color: #b71c1c; padding: 8px 12px; font-size: 12px;">Rensa Tavla</button>
+                <div style="background: rgba(0,0,0,0.7); padding: 5px; border-radius: 5px; display: flex; gap: 5px; pointer-events: auto; margin-top: 5px;">
                     <input type="number" id="air-dist-input" value="10" min="1" max="50" style="width: 40px; background: #222; color: white; border: 1px solid #555; border-radius: 3px; text-align: center; font-weight: bold;">
-                    <button id="air-spawn-btn" class="action-btn" style="background: #9c27b0; border-color: #7b1fa2;">I luften</button>
+                    <button id="air-spawn-btn" class="action-btn" style="background: #9c27b0; border-color: #7b1fa2; padding: 8px 12px; font-size: 12px;">Skapa I luften</button>
                 </div>
             </div>
         </div>
@@ -81,82 +79,55 @@
 
     <script type="module">
         import * as THREE from 'https://unpkg.com/three@0.150.1/build/three.module.js';
-        import { ARButton } from 'https://unpkg.com/three@0.150.1/examples/jsm/webxr/ARButton.js';
 
         let camera, scene, renderer, target, targetDecals, reticle;
-        let hitTestSource = null, hitTestSourceRequested = false, placingMode = true, hits = 0;
+        let xrSession = null;
+        let videoStream = null;
+        let isUsingFallbackAR = false;
         
-        // Ljud och Gyro
+        let placingMode = true, hits = 0;
         let audioContext, analyser, dataArray, lastShotTime = 0;
+        
+        // Gyro variabler
+        let gyroEnabled = false;
         let sightOffsetX = 0, sightOffsetY = 0, sightVelX = 0, sightVelY = 0;
-        let prevAlpha = null, prevBeta = null, prevGamma = null;
+        let calibAlpha = null, calibGamma = null;
         
         const raycaster = new THREE.Raycaster();
+        const canvasContainer = document.getElementById('three-canvas');
 
-        init();
+        initThreeJS();
 
-        function init() {
-            // 1. Skapa Scen
+        // --- START KNAPP ---
+        document.getElementById('btn-start').addEventListener('click', async () => {
+            try {
+                if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+                if (screen.orientation && screen.orientation.lock) await screen.orientation.lock("landscape");
+            } catch(e) {}
+            
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('ar-ui').style.display = 'flex';
+            
+            startMic();
+            startGyro(); // Trick 4
+            startWebXR(); // Trick 3 (som triggar Trick 2 vid fail)
+        });
+
+        function initThreeJS() {
             scene = new THREE.Scene();
-            scene.background = null; // MÅSTE vara null för AR
+            scene.background = null; 
             
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
             scene.add(new THREE.AmbientLight(0xffffff, 0.8));
 
-            // 2. Skapa Renderer (Alpha måste vara true)
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setClearColor(0x000000, 0); // Helt transparent
+            renderer.setClearColor(0x000000, 0); 
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.xr.enabled = true;
-            document.body.appendChild(renderer.domElement);
+            canvasContainer.appendChild(renderer.domElement);
 
-            // 3. Lägg till Officiell AR-knapp
-            const arBtn = ARButton.createButton(renderer, { 
-                requiredFeatures: ['hit-test'], 
-                optionalFeatures: ['dom-overlay'], 
-                domOverlay: { root: document.getElementById('ar-ui') } 
-            });
-            document.getElementById('ar-btn-container').appendChild(arBtn);
-
-            // 4. Skapa Tavla och Reticle
-            createTarget();
-            
-            reticle = new THREE.Mesh(new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
-            reticle.matrixAutoUpdate = false; reticle.visible = false; scene.add(reticle);
-
-            // --- NÄR AR STARTAR ---
-            renderer.xr.addEventListener('sessionstart', async () => {
-                document.getElementById('start-screen').style.display = 'none';
-                document.getElementById('ar-ui').style.display = 'flex';
-                
-                // Rotera till landskap om möjligt
-                try { if (screen.orientation && screen.orientation.lock) await screen.orientation.lock("landscape"); } catch(e) {}
-                
-                startMic();
-            });
-
-            // Lyssna på Gyro för Siktet (Samma mjuka matematik som 2D-läget)
-            window.addEventListener('deviceorientation', (e) => {
-                if(!renderer.xr.isPresenting || !e.alpha) return;
-                
-                if(prevAlpha === null) { prevAlpha = e.alpha; prevBeta = e.beta; prevGamma = e.gamma; return; }
-                let dAlpha = e.alpha - prevAlpha; let dGamma = e.gamma - prevGamma;
-                
-                if (dAlpha > 180) dAlpha -= 360; else if (dAlpha < -180) dAlpha += 360;
-                if (dGamma > 90) dGamma -= 180; else if (dGamma < -90) dGamma += 180;
-                
-                sightVelX -= dAlpha * 2.5; 
-                sightVelY -= dGamma * 2.5;
-                
-                prevAlpha = e.alpha; prevBeta = e.beta; prevGamma = e.gamma;
-            });
-
-            setupUI();
-            renderer.setAnimationLoop(render);
-        }
-
-        function createTarget() {
+            // Tavla
             const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 512;
             const ctx = canvas.getContext('2d');
             ctx.fillStyle = '#e3dac9'; ctx.fillRect(0, 0, 512, 512);
@@ -166,24 +137,125 @@
             target = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.4), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), side: THREE.DoubleSide }));
             target.visible = false; scene.add(target);
             targetDecals = new THREE.Group(); target.add(targetDecals);
+
+            // Reticle för vägg-hit-test
+            reticle = new THREE.Mesh(new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
+            reticle.matrixAutoUpdate = false; reticle.visible = false; scene.add(reticle);
+
+            window.addEventListener('resize', () => { 
+                camera.aspect = window.innerWidth / window.innerHeight; 
+                camera.updateProjectionMatrix(); 
+                renderer.setSize(window.innerWidth, window.innerHeight); 
+            });
+
+            renderer.setAnimationLoop(render);
         }
 
+        // --- TRICK 3 & 2: STARTA WEBXR ELLER FALLBACK ---
+        function startWebXR() {
+            if (navigator.xr) {
+                navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+                    if (supported) {
+                        navigator.xr.requestSession('immersive-ar', { 
+                            requiredFeatures: ['hit-test'], // Tar bort local-floor då hit-test räcker här
+                            optionalFeatures: ['dom-overlay'], 
+                            domOverlay: { root: document.getElementById('ar-ui') } 
+                        }).then((session) => {
+                            xrSession = session;
+                            renderer.xr.setReferenceSpaceType('local');
+                            renderer.xr.setSession(session);
+                            document.getElementById('statusBoard').innerText = "SKANNA VÄGGEN";
+                        }).catch(err => {
+                            console.warn("WebXR Session nekades, startar fallback...", err);
+                            startCameraAR();
+                        });
+                    } else {
+                        console.warn("Immersive-AR stöds ej, startar fallback...");
+                        startCameraAR();
+                    }
+                });
+            } else {
+                console.warn("Inget WebXR API, startar fallback...");
+                startCameraAR();
+            }
+        }
+
+        // --- TRICK 2: KAMERA FALLBACK (MAGIC WINDOW) ---
+        async function startCameraAR() {
+            isUsingFallbackAR = true;
+            renderer.xr.enabled = false; // Stäng av WebXR renderern
+            const cameraFeed = document.getElementById('camera-feed');
+            
+            if (!navigator.mediaDevices) return;
+
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            } catch (err) { 
+                try { videoStream = await navigator.mediaDevices.getUserMedia({ video: true }); } 
+                catch(e) { return; }
+            }
+            
+            cameraFeed.srcObject = videoStream; 
+            cameraFeed.style.display = 'block'; 
+            cameraFeed.play().catch(e => console.error("Autoplay blockerad", e));
+            
+            document.getElementById('statusBoard').innerText = "SKAPA TAVLA I LUFTEN";
+            document.getElementById('place-btn').style.display = 'none'; // Väggskanning funkar ej i fallback
+        }
+
+        // --- TRICK 4: THE SANITIZER FÖR GYRO ---
+        function startGyro() {
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission().then(state => {
+                    if (state === 'granted') { gyroEnabled = true; window.addEventListener('deviceorientation', handleOrientation); }
+                }).catch(e => console.error("Gyro nekad."));
+            } else { 
+                gyroEnabled = true; window.addEventListener('deviceorientation', handleOrientation); 
+            }
+        }
+
+        function handleOrientation(event) {
+            if (!gyroEnabled || !event.alpha) return;
+
+            let alpha = event.alpha; 
+            let gamma = event.gamma; // Gamma för upp/ner i landskap
+            
+            if (calibAlpha === null || calibGamma === null) { 
+                calibAlpha = alpha; calibGamma = gamma; return;
+            }
+            
+            let dAlpha = alpha - calibAlpha; 
+            let dGamma = gamma - calibGamma;
+            
+            if (dAlpha > 180) dAlpha -= 360; else if (dAlpha < -180) dAlpha += 360;
+            if (dGamma > 90) dGamma -= 180; else if (dGamma < -90) dGamma += 180;
+            
+            // SANITIZER: Filtrera bort NaN som kraschar appen
+            if (isNaN(dAlpha)) dAlpha = 0;
+            if (isNaN(dGamma)) dGamma = 0;
+
+            // Om vi har ett enormt spik-värde, ignorera framen (Gimbal lock skydd)
+            if (Math.abs(dAlpha) > 40 || Math.abs(dGamma) > 40) return;
+
+            sightVelX -= dAlpha * 2.5; 
+            sightVelY -= dGamma * 2.5;
+            
+            calibAlpha = alpha; calibGamma = gamma;
+        }
+
+        // --- MIKROFON & SKJUTA ---
         function startMic() {
             navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 analyser = audioContext.createAnalyser();
                 audioContext.createMediaStreamSource(stream).connect(analyser);
                 dataArray = new Uint8Array(analyser.frequencyBinCount);
-                
                 document.getElementById('audio-status').innerText = "Mic: AKTIV";
                 
                 function loopMic() {
-                    if (renderer.xr.isPresenting) {
-                        analyser.getByteFrequencyData(dataArray);
-                        // 1.5 sekunders cooldown
-                        if (Math.max(...dataArray) > 170 && (Date.now() - lastShotTime) > 1500) {
-                            lastShotTime = Date.now(); fireShot();
-                        }
+                    analyser.getByteFrequencyData(dataArray);
+                    if (Math.max(...dataArray) > 170 && (Date.now() - lastShotTime) > 1500) {
+                        lastShotTime = Date.now(); fireShot();
                     }
                     requestAnimationFrame(loopMic);
                 }
@@ -192,14 +264,13 @@
         }
 
         function fireShot() {
-            if(placingMode) return;
+            if(placingMode && !isUsingFallbackAR) return;
             
             const frontSightEl = document.getElementById('front-sight');
             frontSightEl.querySelector('.white-dot').style.background = "red";
-            sightVelY -= 40; // Visuell rekyl i siktet
+            sightVelY -= 40; 
             setTimeout(() => frontSightEl.querySelector('.white-dot').style.background = "#fff", 100);
 
-            // Straffa om siktet inte är linjerat!
             const vecX = (sightOffsetX / (window.innerWidth / 2));
             const vecY = -(sightOffsetY / (window.innerHeight / 2));
             raycaster.setFromCamera(new THREE.Vector2(vecX, vecY), camera);
@@ -209,7 +280,6 @@
                 const hit = target.worldToLocal(intersects[0].point.clone());
                 const hole = new THREE.Mesh(new THREE.CircleGeometry(0.005, 16), new THREE.MeshBasicMaterial({ color: 0xff0000, depthTest: false }));
                 hole.position.set(hit.x, hit.y, 0.001); targetDecals.add(hole);
-                
                 hits++; document.getElementById('ar-hit-count').innerText = hits;
                 showFeedback("TRÄFF!", true);
             } else {
@@ -223,70 +293,68 @@
             setTimeout(() => { el.style.opacity = 0; }, 800);
         }
 
-        function setupUI() {
-            document.getElementById('place-btn').addEventListener('click', () => {
-                if (reticle.visible) {
-                    target.position.setFromMatrixPosition(reticle.matrix); target.quaternion.setFromRotationMatrix(reticle.matrix);
-                    target.rotateX(-Math.PI / 2); target.visible = true; placingMode = false;
-                    document.getElementById('place-btn').style.display = 'none'; document.getElementById('statusBoard').innerText = "HÅLL STRUKET KORN";
-                }
-            });
-            
-            document.getElementById('ar-clear-btn').addEventListener('click', () => {
-                while(targetDecals.children.length > 0) targetDecals.remove(targetDecals.children[0]);
-                hits = 0; document.getElementById('ar-hit-count').innerText = 0;
-            });
-            
-            document.getElementById('ar-move-btn').addEventListener('click', () => { 
-                target.visible = false; placingMode = true; document.getElementById('statusBoard').innerText = "SKANNA VÄGGEN"; 
-            });
-            
-            document.getElementById('air-spawn-btn').addEventListener('click', () => {
-                const dist = parseFloat(document.getElementById('air-dist-input').value);
-                if (isNaN(dist) || dist <= 0) return;
-                const direction = new THREE.Vector3(0, 0, -1);
-                direction.applyQuaternion(camera.quaternion); direction.multiplyScalar(dist);
-                target.position.copy(camera.position).add(direction); target.lookAt(camera.position);
-                target.visible = true; placingMode = false; document.getElementById('place-btn').style.display = 'none';
-                document.getElementById('statusBoard').innerText = "HÅLL STRUKET KORN";
-            });
+        // --- UI KNAPPAR ---
+        document.getElementById('place-btn').addEventListener('click', () => {
+            if (reticle.visible && !isUsingFallbackAR) {
+                target.position.setFromMatrixPosition(reticle.matrix); target.quaternion.setFromRotationMatrix(reticle.matrix);
+                target.rotateX(-Math.PI / 2); target.visible = true; placingMode = false;
+                document.getElementById('place-btn').style.display = 'none'; document.getElementById('statusBoard').innerText = "HÅLL STRUKET KORN";
+            }
+        });
+        
+        document.getElementById('ar-clear-btn').addEventListener('click', () => {
+            while(targetDecals.children.length > 0) targetDecals.remove(targetDecals.children[0]);
+            hits = 0; document.getElementById('ar-hit-count').innerText = 0;
+        });
+        
+        document.getElementById('air-spawn-btn').addEventListener('click', () => {
+            const dist = parseFloat(document.getElementById('air-dist-input').value);
+            if (isNaN(dist) || dist <= 0) return;
+            const direction = new THREE.Vector3(0, 0, -1);
+            direction.applyQuaternion(camera.quaternion); direction.multiplyScalar(dist);
+            target.position.copy(camera.position).add(direction); target.lookAt(camera.position);
+            target.visible = true; placingMode = false; document.getElementById('place-btn').style.display = 'none';
+            document.getElementById('statusBoard').innerText = "HÅLL STRUKET KORN";
+        });
 
-            window.addEventListener('resize', () => { 
-                camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); 
-            });
-        }
-
+        // --- RENDER LOOP ---
+        let hitTestSourceRequested = false; let hitTestSource = null;
+        
         function render(timestamp, frame) {
-            if (frame && renderer.xr.isPresenting) {
-                // Uppdatera Avståndsmätare
-                if (target.visible) document.getElementById('ar-distance').innerText = camera.position.distanceTo(target.position).toFixed(1);
-                else document.getElementById('ar-distance').innerText = "--";
+            // Siktets Fysik
+            sightVelX *= 0.8; sightVelY *= 0.8; 
+            sightOffsetX += sightVelX; sightOffsetY += sightVelY;
+            sightOffsetX += (0 - sightOffsetX) * 0.15; sightOffsetY += (0 - sightOffsetY) * 0.15;
+            
+            // Sanitizer mot extrema sikt-hopp
+            if(isNaN(sightOffsetX)) sightOffsetX = 0;
+            if(isNaN(sightOffsetY)) sightOffsetY = 0;
 
-                // Fjäderfysik för siktet
-                sightVelX *= 0.8; sightVelY *= 0.8; 
-                sightOffsetX += sightVelX; sightOffsetY += sightVelY;
-                sightOffsetX += (0 - sightOffsetX) * 0.15; sightOffsetY += (0 - sightOffsetY) * 0.15;
-                sightOffsetX = Math.max(-100, Math.min(100, sightOffsetX)); sightOffsetY = Math.max(-80, Math.min(80, sightOffsetY));
-                document.getElementById('front-sight').style.transform = `translate(${sightOffsetX}px, ${sightOffsetY}px)`;
+            sightOffsetX = Math.max(-100, Math.min(100, sightOffsetX)); 
+            sightOffsetY = Math.max(-80, Math.min(80, sightOffsetY));
+            document.getElementById('front-sight').style.transform = `translate(${sightOffsetX}px, ${sightOffsetY}px)`;
 
-                // Hit-testing för väggplacering
-                if (placingMode) {
-                    const refSpace = renderer.xr.getReferenceSpace();
-                    if (!hitTestSourceRequested) {
-                        renderer.xr.getSession().requestReferenceSpace('viewer').then(rs => renderer.xr.getSession().requestHitTestSource({ space: rs }).then(s => hitTestSource = s));
-                        hitTestSourceRequested = true;
-                    }
-                    if (hitTestSource) {
-                        const hits = frame.getHitTestResults(hitTestSource);
-                        if (hits.length > 0) {
-                            reticle.visible = true; reticle.matrix.fromArray(hits[0].getPose(refSpace).transform.matrix);
-                            document.getElementById('place-btn').style.display = 'block';
-                        } else { 
-                            reticle.visible = false; document.getElementById('place-btn').style.display = 'none'; 
-                        }
+            // Uppdatera avstånd
+            if (target.visible) document.getElementById('ar-distance').innerText = camera.position.distanceTo(target.position).toFixed(1);
+
+            // ÄKTA WEBXR: Hit-testing för väggar
+            if (frame && xrSession && placingMode && !isUsingFallbackAR) {
+                const refSpace = renderer.xr.getReferenceSpace();
+                if (!hitTestSourceRequested) {
+                    xrSession.requestReferenceSpace('viewer').then(rs => xrSession.requestHitTestSource({ space: rs }).then(s => hitTestSource = s));
+                    hitTestSourceRequested = true;
+                }
+                if (hitTestSource) {
+                    const hits = frame.getHitTestResults(hitTestSource);
+                    if (hits.length > 0) {
+                        reticle.visible = true; reticle.matrix.fromArray(hits[0].getPose(refSpace).transform.matrix);
+                        document.getElementById('place-btn').style.display = 'block';
+                    } else { 
+                        reticle.visible = false; document.getElementById('place-btn').style.display = 'none'; 
                     }
                 }
             }
+
             renderer.render(scene, camera);
         }
     </script>
